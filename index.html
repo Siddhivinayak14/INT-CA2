@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="description" content="Save your campus parking spot with GPS, photos, zone tags, reminder timers, and live walking directions back to your vehicle." />
+  <title>Where Did I Park? — Campus Parking</title>
+
+  <!-- Leaflet.js CSS (OpenStreetMap, no API key required) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <!-- Top Header -->
+  <header class="app-header" role="banner">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">🅿️</span>
+        <div class="brand-text">
+          <h1 class="brand-title">Where Did I Park?</h1>
+          <p class="brand-subtitle">Campus Parking Locator</p>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div
+          id="gps-status-pill"
+          class="gps-pill gps-pill--searching"
+          role="status"
+          aria-live="polite"
+          title="Current GPS status"
+        >
+          <span class="gps-dot" aria-hidden="true"></span>
+          <span id="gps-status-text">Locating GPS…</span>
+        </div>
+
+        <button
+          id="theme-toggle"
+          type="button"
+          class="icon-btn theme-toggle"
+          aria-label="Switch to dark mode"
+          aria-pressed="false"
+          title="Toggle light/dark theme"
+        >
+          <span id="theme-icon" aria-hidden="true">🌙</span>
+          <span class="theme-label">Dark</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Toast / Notification Banner -->
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Main Workspace -->
+  <main id="main-content" class="app-main">
+    <!-- SCREEN 1: SAVE / UPDATE PARKING SPOT -->
+    <section
+      id="save-spot-screen"
+      class="screen"
+      aria-labelledby="save-screen-heading"
+    >
+      <div class="screen-header">
+        <div>
+          <h2 id="save-screen-heading" class="screen-title">Save Parking Spot</h2>
+          <p id="save-screen-subtitle" class="screen-subtitle">
+            Confirm your pin on the campus map and tag details so you can walk straight back later.
+          </p>
+        </div>
+        <button
+          id="cancel-update-btn"
+          type="button"
+          class="btn btn-ghost hidden"
+        >
+          Cancel Update
+        </button>
+      </div>
+
+      <div class="layout-grid">
+        <!-- Map Column -->
+        <div class="card map-card">
+          <div class="card-header">
+            <h3 class="card-title">1. Pin Vehicle Location</h3>
+            <div class="map-actions">
+              <button
+                id="recenter-gps-btn"
+                type="button"
+                class="btn btn-sm btn-secondary"
+                title="Move pin to current GPS location"
+              >
+                <span aria-hidden="true">🎯</span> Use My GPS
+              </button>
+            </div>
+          </div>
+
+          <div id="gps-fallback-banner" class="alert-banner alert-banner--info hidden" role="status">
+            <span aria-hidden="true">📍</span>
+            <span id="gps-fallback-message">
+              GPS unavailable or denied. Tap anywhere on the map or drag the pin to set your spot manually.
+            </span>
+          </div>
+
+          <div class="map-wrapper">
+            <div
+              id="save-map"
+              class="leaflet-map"
+              role="application"
+              aria-label="Interactive campus parking map. Tap or drag marker to set vehicle location."
+            ></div>
+            <div id="save-map-fallback" class="map-unavailable hidden">
+              <p>Map tiles could not load. You can still save coordinates manually or via GPS.</p>
+            </div>
+          </div>
+
+          <div class="coord-bar">
+            <span class="coord-chip">
+              <strong>Pin:</strong>
+              <code id="selected-coords-display">Locating…</code>
+            </span>
+            <span id="pin-hint-text" class="coord-hint">
+              Drag the pin or tap the map to fine-tune
+            </span>
+          </div>
+        </div>
+
+        <!-- Form Column -->
+        <form id="parking-form" class="card form-card" novalidate>
+          <div class="card-header">
+            <h3 class="card-title">2. Spot &amp; Vehicle Details</h3>
+          </div>
+
+          <!-- Campus Zone Quick-Select -->
+          <fieldset class="form-group">
+            <legend class="form-label">Campus Zone <span class="required-mark">*</span></legend>
+            <div id="zone-pills" class="pill-group" role="radiogroup" aria-label="Campus Zone">
+              <button type="button" class="pill-btn active" data-zone="Main Gate" aria-pressed="true">
+                Main Gate
+              </button>
+              <button type="button" class="pill-btn" data-zone="Academic Block 34" aria-pressed="false">
+                Academic Block 34
+              </button>
+              <button type="button" class="pill-btn" data-zone="Central Library" aria-pressed="false">
+                Central Library
+              </button>
+              <button type="button" class="pill-btn" data-zone="Hostel Zone" aria-pressed="false">
+                Hostel Zone
+              </button>
+              <button type="button" class="pill-btn" data-zone="Sports Complex" aria-pressed="false">
+                Sports Complex
+              </button>
+              <button type="button" class="pill-btn" data-zone="custom" aria-pressed="false">
+                + Custom
+              </button>
+            </div>
+
+            <div id="custom-zone-wrap" class="custom-zone-wrap hidden">
+              <label for="custom-zone-input" class="sr-only">Custom Campus Zone Name</label>
+              <input
+                id="custom-zone-input"
+                type="text"
+                class="text-input"
+                maxlength="60"
+                placeholder="Enter custom zone (e.g., Auditorium Lot B)"
+              />
+            </div>
+          </fieldset>
+
+          <!-- Vehicle Type Selector -->
+          <fieldset class="form-group">
+            <legend class="form-label">Vehicle Type</legend>
+            <div id="vehicle-pills" class="vehicle-grid" role="radiogroup" aria-label="Vehicle Type">
+              <button type="button" class="vehicle-btn active" data-vehicle="Two-Wheeler/Bike" aria-pressed="true">
+                <span class="vehicle-icon" aria-hidden="true">🏍️</span>
+                <span>Two-Wheeler / Bike</span>
+              </button>
+              <button type="button" class="vehicle-btn" data-vehicle="Car" aria-pressed="false">
+                <span class="vehicle-icon" aria-hidden="true">🚗</span>
+                <span>Car</span>
+              </button>
+              <button type="button" class="vehicle-btn" data-vehicle="EV/Bicycle" aria-pressed="false">
+                <span class="vehicle-icon" aria-hidden="true">🚲</span>
+                <span>EV / Bicycle</span>
+              </button>
+            </div>
+          </fieldset>
+
+          <!-- Floor / Slot / Pillar -->
+          <div class="form-row-3">
+            <div class="form-group">
+              <label for="floor-input" class="form-label">Floor / Level</label>
+              <input
+                id="floor-input"
+                type="text"
+                class="text-input"
+                maxlength="24"
+                placeholder="e.g., B1, Ground"
+              />
+            </div>
+            <div class="form-group">
+              <label for="slot-input" class="form-label">Slot Number</label>
+              <input
+                id="slot-input"
+                type="text"
+                class="text-input"
+                maxlength="24"
+                placeholder="e.g., A-14"
+              />
+            </div>
+            <div class="form-group">
+              <label for="pillar-input" class="form-label">Pillar / Row</label>
+              <input
+                id="pillar-input"
+                type="text"
+                class="text-input"
+                maxlength="24"
+                placeholder="e.g., P7, Row 3"
+              />
+            </div>
+          </div>
+
+          <!-- Landmark Notes -->
+          <div class="form-group">
+            <label for="notes-input" class="form-label">Landmark Notes</label>
+            <textarea
+              id="notes-input"
+              class="text-input textarea-input"
+              rows="2"
+              maxlength="220"
+              placeholder="e.g., Under the neem tree, near the security booth"
+            ></textarea>
+          </div>
+
+          <!-- Photo Capture / Upload -->
+          <div class="form-group">
+            <span class="form-label">Spot Photo (Optional, compressed automatically)</span>
+            <div class="photo-controls">
+              <label class="btn btn-secondary btn-file">
+                <span aria-hidden="true">📷</span> Take / Upload Photo
+                <input
+                  id="photo-input"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  class="sr-only"
+                />
+              </label>
+              <button
+                id="remove-photo-btn"
+                type="button"
+                class="btn btn-ghost btn-sm hidden"
+              >
+                Remove Photo
+              </button>
+              <span id="photo-meta" class="photo-meta"></span>
+            </div>
+            <div id="photo-preview-wrap" class="photo-preview-wrap hidden">
+              <img id="photo-preview-img" src="" alt="Preview of your parking spot" class="photo-preview-img" />
+            </div>
+          </div>
+
+          <!-- Optional Parking Reminder Timer -->
+          <fieldset class="form-group">
+            <legend class="form-label">Parking Reminder Timer (Optional)</legend>
+            <div id="timer-pills" class="pill-group" role="radiogroup" aria-label="Reminder Duration">
+              <button type="button" class="pill-btn active" data-minutes="0" aria-pressed="true">None</button>
+              <button type="button" class="pill-btn" data-minutes="30" aria-pressed="false">30 min</button>
+              <button type="button" class="pill-btn" data-minutes="60" aria-pressed="false">1 hr</button>
+              <button type="button" class="pill-btn" data-minutes="120" aria-pressed="false">2 hrs</button>
+              <button type="button" class="pill-btn" data-minutes="240" aria-pressed="false">4 hrs</button>
+              <button type="button" class="pill-btn" data-minutes="custom" aria-pressed="false">Custom</button>
+            </div>
+            <div id="custom-timer-wrap" class="custom-timer-wrap hidden">
+              <label for="custom-timer-input" class="sr-only">Custom reminder minutes</label>
+              <input
+                id="custom-timer-input"
+                type="number"
+                min="1"
+                max="1440"
+                step="1"
+                class="text-input"
+                placeholder="Minutes (1 – 1440)"
+              />
+            </div>
+          </fieldset>
+
+          <!-- Primary CTA -->
+          <div class="form-actions">
+            <button id="save-spot-btn" type="submit" class="btn btn-primary btn-lg btn-block">
+              <span aria-hidden="true">📌</span>
+              <span id="save-spot-btn-text">Save My Parking Spot</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- SCREEN 2: ACTIVE PARKING DASHBOARD -->
+    <section
+      id="active-dashboard-screen"
+      class="screen hidden"
+      aria-labelledby="dashboard-heading"
+    >
+      <div class="screen-header">
+        <div>
+          <div class="badge-row">
+            <span class="status-badge status-badge--active">
+              <span class="pulse-dot" aria-hidden="true"></span> Active Session
+            </span>
+            <span id="dash-vehicle-badge" class="status-badge status-badge--neutral"></span>
+          </div>
+          <h2 id="dashboard-heading" class="screen-title">Your Vehicle is Parked</h2>
+          <p id="dash-saved-at" class="screen-subtitle"></p>
+        </div>
+
+        <div class="dashboard-header-actions">
+          <button id="update-spot-btn" type="button" class="btn btn-secondary">
+            <span aria-hidden="true">✏️</span> Update Spot
+          </button>
+          <button id="end-session-btn" type="button" class="btn btn-danger">
+            <span aria-hidden="true">✅</span> I Found My Vehicle (End Session)
+          </button>
+        </div>
+      </div>
+
+      <!-- Reminder Alert Banner (appears when warning/expired) -->
+      <div id="reminder-alert-banner" class="alert-banner alert-banner--warning hidden" role="alert">
+        <span aria-hidden="true">⏰</span>
+        <span id="reminder-alert-text"></span>
+      </div>
+
+      <!-- Live Telemetry Row -->
+      <div class="telemetry-grid">
+        <div class="stat-card">
+          <span class="stat-label">Elapsed Time</span>
+          <strong id="elapsed-timer-value" class="stat-value stat-value--mono">00:00:00</strong>
+          <span class="stat-sub">Since parked</span>
+        </div>
+
+        <div class="stat-card" id="countdown-card">
+          <span class="stat-label">Reminder Countdown</span>
+          <strong id="countdown-value" class="stat-value stat-value--mono">No timer</strong>
+          <span id="countdown-sub" class="stat-sub">Optional alert</span>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-label">Distance to Vehicle</span>
+          <strong id="distance-value" class="stat-value">—</strong>
+          <span id="walking-time-value" class="stat-sub">Waiting for GPS…</span>
+        </div>
+
+        <div class="stat-card compass-card">
+          <span class="stat-label">Direction</span>
+          <div class="compass-readout">
+            <div class="compass-dial" aria-hidden="true">
+              <span id="compass-arrow" class="compass-arrow">▲</span>
+            </div>
+            <div>
+              <strong id="bearing-value" class="stat-value">—</strong>
+              <span id="compass-mode-sub" class="stat-sub">Bearing to vehicle</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="layout-grid">
+        <!-- Live Tracking Map -->
+        <div class="card map-card">
+          <div class="card-header">
+            <h3 class="card-title">Live Walking Tracker</h3>
+            <div class="map-actions">
+              <button
+                id="fit-route-btn"
+                type="button"
+                class="btn btn-sm btn-secondary"
+                title="Fit both you and your vehicle on map"
+              >
+                <span aria-hidden="true">🗺️</span> Fit Both Pins
+              </button>
+            </div>
+          </div>
+
+          <div class="map-wrapper">
+            <div
+              id="live-map"
+              class="leaflet-map"
+              role="application"
+              aria-label="Live tracking map showing your position and parked vehicle"
+            ></div>
+            <div id="live-map-fallback" class="map-unavailable hidden">
+              <p>Map tiles unavailable. Use "Open in Google Maps" below for walking directions.</p>
+            </div>
+          </div>
+
+          <div class="map-legend">
+            <span class="legend-item"><span class="legend-dot legend-dot--user"></span> You (Live)</span>
+            <span class="legend-item"><span class="legend-dot legend-dot--vehicle"></span> Vehicle</span>
+            <span class="legend-item"><span class="legend-line"></span> Direct Path</span>
+          </div>
+
+          <div class="gmaps-action-wrap">
+            <a
+              id="google-maps-link"
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn btn-primary btn-block"
+            >
+              <span aria-hidden="true">🧭</span> Open in Google Maps (Walking Directions)
+            </a>
+          </div>
+        </div>
+
+        <!-- Saved Details & Photo Card -->
+        <div class="card details-card">
+          <div class="card-header">
+            <h3 class="card-title">Saved Spot Details</h3>
+            <span id="dash-zone-pill" class="zone-highlight"></span>
+          </div>
+
+          <dl class="details-list">
+            <div class="detail-item">
+              <dt>Floor / Level</dt>
+              <dd id="dash-floor">—</dd>
+            </div>
+            <div class="detail-item">
+              <dt>Slot Number</dt>
+              <dd id="dash-slot">—</dd>
+            </div>
+            <div class="detail-item">
+              <dt>Pillar / Row</dt>
+              <dd id="dash-pillar">—</dd>
+            </div>
+            <div class="detail-item detail-item--full">
+              <dt>Landmark Notes</dt>
+              <dd id="dash-notes">No notes added</dd>
+            </div>
+            <div class="detail-item detail-item--full">
+              <dt>Coordinates</dt>
+              <dd><code id="dash-coords">—</code></dd>
+            </div>
+          </dl>
+
+          <div id="dash-photo-section" class="dash-photo-section hidden">
+            <h4 class="sub-heading">Spot Reference Photo</h4>
+            <button
+              id="dash-photo-trigger"
+              type="button"
+              class="dash-photo-btn"
+              title="Click to enlarge photo"
+            >
+              <img id="dash-photo-img" src="" alt="Saved parking spot reference" class="dash-photo-img" />
+              <span class="zoom-hint">Tap to enlarge</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- COLLAPSIBLE PARKING HISTORY LOG -->
+    <section class="history-section card" aria-labelledby="history-heading">
+      <details id="history-details" class="history-details">
+        <summary class="history-summary">
+          <div class="history-summary-left">
+            <span class="history-chevron" aria-hidden="true">▸</span>
+            <h2 id="history-heading" class="card-title">Parking History</h2>
+            <span id="history-count-badge" class="count-badge">0</span>
+          </div>
+          <span class="history-summary-hint">Tap to view or reuse past spots</span>
+        </summary>
+
+        <div class="history-body">
+          <div class="history-toolbar">
+            <p class="history-caption">
+              Completed sessions are saved locally on this device. Reuse frequent campus spots in one tap.
+            </p>
+            <button
+              id="clear-history-btn"
+              type="button"
+              class="btn btn-sm btn-ghost-danger hidden"
+            >
+              Clear History
+            </button>
+          </div>
+
+          <div id="history-empty-state" class="empty-state">
+            No past parking sessions yet. Once you end a parking session, it will appear here.
+          </div>
+
+          <ul id="history-list" class="history-list" aria-live="polite"></ul>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <!-- Photo Lightbox Modal -->
+  <div id="photo-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Enlarged parking spot photo">
+    <div class="modal-backdrop" id="photo-modal-backdrop"></div>
+    <div class="modal-content">
+      <button id="close-photo-modal" type="button" class="icon-btn modal-close" aria-label="Close photo preview">
+        ✕
+      </button>
+      <img id="modal-photo-img" src="" alt="Full size parking spot reference" class="modal-img" />
+    </div>
+  </div>
+
+  <!-- Leaflet.js Script -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    crossorigin=""
+  ></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
